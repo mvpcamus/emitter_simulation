@@ -11,6 +11,18 @@ import random
 # - the equilateral triangles have edge length step_x
 
 class Emitter(object):
+  '''
+  An emitter class
+  args:
+    x,y,z = coordination of the center of the emitter
+    act_rate = activation rate of emitters
+  variables:
+    self.x, self.y, self.z = x, y, z
+    self.status = activation status of the emitter (0:off, 1:on)
+    CONNECTED = number of connected emitters (chain effect) at the first (z=0) layer
+  '''
+  CONNECTED = 3
+
   def __init__(self, x, y, z, act_rate):
     self.x = x
     self.y = y
@@ -18,21 +30,48 @@ class Emitter(object):
     active = random.random()
     if active > act_rate:
       self.status = 0
+    elif self.z == 0:  # the first layer (z=0) represents multiple layers
+      self.status = Emitter.CONNECTED
     else:
       self.status = 1
 
-  def react(self, x, y, z, effect_d, radius):
+  def react(self, x, y, z, effect_d, radius, strength):
+    '''
+    update the emitters status after reaction
+    args:
+      x,y,z = coordination of the influential quencher
+      effect_d = effective distance of the quencher
+      radius = radius of the emitter (to discard a quencher inside an emitter)
+      strength = effect strength of the quencher
+    returns:
+      self.status = activation status of the emitter after reaction
+    '''
     d = math.sqrt((self.x - x)**2 + (self.y - y)**2 + (self.z - z)**2)
     if d > effect_d:
       pass
     elif d <= radius:
       return -1
-    else:
-      self.status = 0
+    elif self.status == Emitter.CONNECTED:  # not touched emitter
+      self.status -= strength
+    else:  # already reacted emitter
+      pass
     return self.status
 
 
-def makeEmitterGrid(width, layer, step_x, step_y, step_z, act_rate):
+def makeEmitterGrid(width, layer, step_x, step_z, act_rate):
+  '''
+  generate a sequencial list of emitters in honeycomb grid
+  args:
+    width = counts of the honeycomb grid on X and Y axes
+    layer = number of honeycomb grid layers
+    (note: total demension = width x width x layer)
+    step_x = distance between centers of adjacent emitters
+    step_z = distance between honeycomb grid layers
+    act_rate = activation rate of emitters
+  return:
+    points = list of emitter instances in honeycomb grid
+  '''
+  step_y = math.sqrt(0.75) * step_x
   points = []
   for z in range(layer):
     for y in range(width):
@@ -44,10 +83,21 @@ def makeEmitterGrid(width, layer, step_x, step_y, step_z, act_rate):
   return points
 
 
-def countActive(x, y, z, emitters, effect_d = 0, radius = 1.0):
+def countActive(x, y, z, emitters, effect_d = 0, radius = 1.0, strength = 1):
+  '''
+  count active emitters in whole honeycomb grid layers after reaction
+  args:
+    x,y,z = coordination of the influential quencher
+    emitters = list of emitter instances
+    effect_d = effective distance of the quencher
+    radius = radius of the emitter (to discard a quencher inside an emitter)
+    strength = effect strength of the quencher
+  return:
+    count = number of active emitters after quencher reaction
+  '''
   count = 0
   for e in emitters:
-    result = e.react(x, y, z, effect_d, radius)
+    result = e.react(x, y, z, effect_d, radius, strength)
     if result == -1:
       return -1
     else:
@@ -60,8 +110,7 @@ if __name__ == "__main__":
   # LAYER: number of emitter grid layers
   # RADIUS: emitter radius
   # EFFECT_D: the effective distance of a quencher
-  # STEP_X: edge length of the equilateral triangle
-  # STEP_Y: height of the equilateral triangle
+  # STEP_X: distance between adjacent emitters
   # STEP_Z: distance between emitter grid layers
   # ACT_RATE: initial emitter activation ratio in grid layers
   # NUM_Q: maximum number of quencher
@@ -77,17 +126,17 @@ if __name__ == "__main__":
     NUM_Q = int(sys.argv[8])
   else:
     WIDTH = 50
-    LAYER = 3
+    LAYER = 2
     RADIUS = 1.0
-    EFFECT_D = 15.0
+    EFFECT_D = 5.0
     STEP_X = 6.1
-    STEP_Z = 8.0
-    ACT_RATE = 0.8
-    NUM_Q = 200
+    STEP_Z = 6.5 * 3
+    ACT_RATE = 0.95
+    NUM_Q = 500
 
-  STEP_Y = math.sqrt(0.75) * STEP_X
+  NUM_RUN = NUM_Q * 2
 
-  emitters = makeEmitterGrid(WIDTH, LAYER, STEP_X, STEP_Y, STEP_Z, ACT_RATE)
+  emitters = makeEmitterGrid(WIDTH, LAYER, STEP_X, STEP_Z, ACT_RATE)
   N0 = countActive(0,0,-100, emitters)
   limit_x = emitters[WIDTH-1].x+(STEP_X/2)
   limit_y = emitters[len(emitters)-1].y
@@ -98,13 +147,26 @@ if __name__ == "__main__":
   print("simulation zone: %f, %f, %f"%(limit_x, limit_y, limit_z))
 
   q_count = 0
+  prev_active = 0
+  # first stage: quencher atteching (direct reaction)
   while q_count < NUM_Q:
     q_x = random.random() * limit_x
     q_y = random.random() * limit_y
     q_z = 0
-
-    active = countActive(q_x, q_y, q_z, emitters, EFFECT_D, RADIUS)
-    if active >= 0:
+    strength = random.randint(2,3)  # 2 or 3 or random.randint(2,3)
+    active = countActive(q_x, q_y, q_z, emitters, EFFECT_D, RADIUS, strength)
+    if active >= 0 and active != prev_active:
       q_count += 1
       if (q_count%10 == 0):
         print("Q: %6d,   N: %6d,   (N0-N)/N0: %f"%(q_count, active, (N0-active)/N0))
+    prev_active = active
+  # senond stage: quencher indirect reaction
+  while q_count < NUM_RUN:
+    q_x = random.random() * limit_x
+    g_y = random.random() * limit_y
+    q_z = (random.random() * -0.9) - (EFFECT_D - 1)
+    active = countActive(q_x, q_y, q_z, emitters, EFFECT_D, RADIUS, 1)
+    q_count += 1
+    if (q_count%10 == 0):
+      print("Q: %6d,   N: %6d,   (N0-N)/N0: %f"%(q_count, active, (N0-active)/N0))
+
